@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
-import joblib
+from tensorflow.keras.models import load_model
 import requests
 import pandas as pd
 import numpy as np
@@ -73,7 +73,7 @@ df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))  # 
 
 # 加载模型
 try:
-    mc = joblib.load("weather_lstm.h5")
+    mc = load_model("weather_lstm.keras")
 except FileNotFoundError:
     print("模型文件未找到")
     exit()

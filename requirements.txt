@@ -3,6 +3,6 @@ requests
 pandas
 scikit-learn
 numpy
-joblib
 gunicorn
 tensorflow-cpu==2.15.1
+h5py==3.10.0  
