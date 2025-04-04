@@ -73,7 +73,7 @@ df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))  # 
 
 # 加载模型
 try:
-    mc = joblib.load("weather_lstm.pkl")
+    mc = joblib.load("weather_lstm.h5")
 except FileNotFoundError:
     print("模型文件未找到")
     exit()
