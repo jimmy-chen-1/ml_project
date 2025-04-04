@@ -6,5 +6,4 @@ numpy
 joblib
 gunicorn
 setuptools
-keras
 tensorflow
