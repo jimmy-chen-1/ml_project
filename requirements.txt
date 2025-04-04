@@ -6,4 +6,4 @@ scikit-learn
 numpy
 joblib
 gunicorn
-tensorflow==2.15.0
+tensorflow>=2.15.0,<2.16
