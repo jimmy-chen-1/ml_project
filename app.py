@@ -1,204 +1,223 @@
+"""
+Weather Prediction Web Service with LSTM Model
+Version: 2.0
+Author: Your Name
+"""
+
+# ============================== 导入依赖 ==============================
 from datetime import datetime, timedelta
+import os
+import json
+import numpy as np
+import pandas as pd
+import requests
+import joblib
+from flask import Flask, render_template, request, jsonify
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import load_model
-import requests
-import pandas as pd
-import numpy as np
-import os
-from flask import Flask, render_template, request, jsonify
-import json
 
-# 安全存储 API Key
-API_KEY = os.environ.get("WEATHER_API_KEY")
-LOCATION = "Illinois"
-base_url = "http://api.weatherapi.com/v1/history.json"
-
-# 创建 Flask 应用
+# ============================== 应用初始化 ==============================
 app = Flask(__name__)
 
-# 当前时间
-now = datetime.now()
-dates_needed = list(set([
-    now.strftime("%Y-%m-%d"),
-    (now - timedelta(hours=10)).strftime("%Y-%m-%d")
-]))
+# ============================== 全局配置 ==============================
+API_KEY = os.environ.get("WEATHER_API_KEY", "your_default_api_key")  # 从环境变量获取
+BASE_API_URL = "http://api.weatherapi.com/v1/history.json"
+MODEL_PATH = "weather_lstm.keras"
+SCALER_PATH = "scaler.save"
+FEATURE_COLS = [
+    "Temperature_C", 
+    "Humidity_%", 
+    "Is_Snowing",
+    "Pressure_mb",
+    "Wind_Speed_kph",
+    "Visibility_km",
+    "Wind_Bearing_deg"
+]
 
-weather_data = []
-
-# 获取天气数据
-for date_str in dates_needed:
-    url = f"{base_url}?key={API_KEY}&q={LOCATION}&dt={date_str}"
+# ============================== 模型和预处理加载 ==============================
+def load_keras_model_with_fallback():
+    """加载Keras模型并处理版本兼容性"""
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-    except requests.RequestException as e:
-        print(f"请求失败: {e}")
-        continue
+        # 处理旧版batch_shape参数问题
+        def _fix_input_layer(config):
+            if "batch_shape" in config:
+                config["input_shape"] = config["batch_shape"][1:]
+                del config["batch_shape"]
+            return type('InputLayer', (), {'from_config': lambda _, cfg: None})
+        
+        return load_model(
+            MODEL_PATH,
+            custom_objects={'InputLayer': _fix_input_layer},
+            compile=False
+        )
+    except Exception as e:
+        app.logger.error(f"模型加载失败: {str(e)}")
+        raise
 
-    if "forecast" in data:
-        try:
-            hour_data_list = data["forecast"]["forecastday"][0]["hour"]
-            for hour_data in hour_data_list:
-                time_str = hour_data["time"]
-                hour_dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-
-                if 0 <= (now - hour_dt).total_seconds() <= 3600 * 10:
-                    weather_data.append({
-                        "Temperature_C": hour_data["temp_c"],
-                        "Humidity_%": hour_data["humidity"],
-                        "Is_Snowing": 1 if "snow" in hour_data["condition"]["text"].lower() else 0,
-                        "Pressure_mb": hour_data["pressure_mb"],
-                        "Wind_Speed_kph": hour_data["wind_kph"],
-                        "Visibility_km": hour_data["vis_km"],
-                        "Wind_Bearing_deg": hour_data["wind_degree"]
-                    })
-        except KeyError:
-            print(f"数据结构异常: {data}")
-            continue
-
-if not weather_data:
-    print("未获取到天气数据")
-    exit()
-
-# 转换为 Pandas DataFrame
-df = pd.DataFrame(weather_data)
-
-# 归一化
-scaler = MinMaxScaler()
-df_scaled = scaler.fit_transform(df)
-
-# Reshape the data to match the LSTM model input shape
-df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))  # Shape (10, 1, 7)
-
-# 加载模型
 try:
-    mc = load_model("weather_lstm.keras")
-except FileNotFoundError:
-    print("模型文件未找到")
-    exit()
+    # 加载预处理工具
+    scaler = joblib.load(SCALER_PATH)
+    
+    # 加载深度学习模型
+    model = load_keras_model_with_fallback()
+    
+    # 验证模型输入形状
+    expected_shape = (1, len(FEATURE_COLS))
+    if model.input_shape[1:] != expected_shape:
+        raise ValueError(
+            f"模型输入形状不匹配！预期: {expected_shape}, 实际: {model.input_shape[1:]}"
+        )
+        
+except Exception as e:
+    print(f"❌ 系统初始化失败: {str(e)}")
+    exit(1)
 
+# ============================== 核心逻辑 ==============================
+class WeatherDataFetcher:
+    """天气数据获取与处理类"""
+    
+    def __init__(self, api_key):
+        self.api_key = api_key
+        
+    def _parse_hour_data(self, hour_data, current_time):
+        """解析单小时数据"""
+        try:
+            time_str = hour_data["time"]
+            hour_dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+            
+            # 仅保留最近10小时数据
+            if (current_time - hour_dt).total_seconds() > 3600 * 10:
+                return None
+                
+            return {
+                "Temperature_C": hour_data["temp_c"],
+                "Humidity_%": hour_data["humidity"],
+                "Is_Snowing": 1 if "snow" in hour_data["condition"]["text"].lower() else 0,
+                "Pressure_mb": hour_data["pressure_mb"],
+                "Wind_Speed_kph": hour_data["wind_kph"],
+                "Visibility_km": hour_data["vis_km"],
+                "Wind_Bearing_deg": hour_data["wind_degree"]
+            }
+        except KeyError as e:
+            app.logger.warning(f"数据字段缺失: {str(e)}")
+            return None
+    
+    def fetch(self, location):
+        """获取指定位置的天气数据"""
+        current_time = datetime.utcnow()
+        weather_data = []
+        
+        # 计算需要请求的日期范围
+        date_set = {
+            (current_time - timedelta(hours=h)).strftime("%Y-%m-%d")
+            for h in range(14)  # 覆盖14小时防止UTC日期变更
+        }
+        
+        for date_str in date_set:
+            try:
+                response = requests.get(
+                    f"{BASE_API_URL}?key={self.api_key}&q={location}&dt={date_str}",
+                    timeout=15
+                )
+                response.raise_for_status()
+                
+                forecast_day = response.json()["forecast"]["forecastday"][0]
+                for hour_data in forecast_day["hour"]:
+                    parsed = self._parse_hour_data(hour_data, current_time)
+                    if parsed:
+                        weather_data.append(parsed)
+                        
+            except requests.exceptions.RequestException as e:
+                app.logger.error(f"API请求失败: {str(e)}")
+            except (KeyError, IndexError) as e:
+                app.logger.error(f"数据解析失败: {str(e)}")
+                
+        return pd.DataFrame(weather_data)
 
-# 反归一化温度
-def inverse_scale_temp(scaled_temp, scaler, feature_index=0):
-    dummy = np.zeros((scaled_temp.shape[0], df.shape[1]))
-    dummy[:, feature_index] = scaled_temp.flatten()
-    return scaler.inverse_transform(dummy)[:, feature_index].reshape(-1, 1)
+class TemperaturePredictor:
+    """温度预测引擎"""
+    
+    def __init__(self, model, scaler):
+        self.model = model
+        self.scaler = scaler
+        
+    def _validate_input(self, df):
+        """验证输入数据有效性"""
+        if df.empty:
+            raise ValueError("输入数据为空")
+        if len(df) < 5:
+            raise ValueError("至少需要5个数据点")
+        if not set(FEATURE_COLS).issubset(df.columns):
+            missing = set(FEATURE_COLS) - set(df.columns)
+            raise ValueError(f"缺失特征列: {missing}")
+            
+    def predict(self, df):
+        """执行温度预测"""
+        self._validate_input(df)
+        
+        # 数据预处理
+        scaled = self.scaler.transform(df[FEATURE_COLS])
+        reshaped = scaled.reshape((-1, 1, len(FEATURE_COLS)))
+        
+        # 模型预测
+        predictions = self.model.predict(reshaped)
+        
+        # 反归一化（温度是第一列）
+        dummy = np.zeros((len(predictions), scaled.shape[1]))
+        dummy[:, 0] = predictions.flatten()
+        return self.scaler.inverse_transform(dummy)[:, 0]
 
-
-# 预测天气
-def predict_weather(df):
-    if not isinstance(df, pd.DataFrame):
-        raise ValueError("Input df must be a pandas DataFrame")
-
-    # 归一化数据
-    df_scaled = scaler.fit_transform(df)
-
-    # Reshape data to match LSTM input
-    df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))
-
-    # 使用 LSTM 模型进行预测
-    dapre = mc.predict(df_reshaped)
-
-    # 反归一化温度
-    result = inverse_scale_temp(dapre, scaler, feature_index=0)
-    return result
-
-
-# 创建网页路由
+# ============================== 路由处理 ==============================
 @app.route('/')
 def home():
+    """主页面"""
     return render_template('index.html')
 
-
-@app.route('/weather', methods=['POST'])
-def weather():
+@app.route('/api/predict', methods=['POST'])
+def predict():
+    """预测接口"""
     try:
-        # 解析前端发送的JSON数据
+        # 参数解析
         data = request.get_json()
-        location = data['location']
-
-        # 更新全局变量并清空旧数据
-        global LOCATION, weather_data
-        LOCATION = location
-        weather_data.clear()
-
-        # 获取当前时间并计算所需日期
-        now = datetime.now()
-        dates_needed = list(set([
-            now.strftime("%Y-%m-%d"),
-            (now - timedelta(hours=10)).strftime("%Y-%m-%d")
-        ]))
-
-        # 请求天气API数据
-        for date_str in dates_needed:
-            url = f"{base_url}?key={API_KEY}&q={LOCATION}&dt={date_str}"
-            try:
-                response = requests.get(url, timeout=10)
-                response.raise_for_status()
-                api_data = response.json()
-            except (requests.RequestException, json.JSONDecodeError) as e:
-                print(f"API请求失败: {e}")
-                continue
-
-            # 提取有效小时数据
-            if "forecast" in api_data:
-                try:
-                    forecast_day = api_data["forecast"]["forecastday"][0]
-                    for hour_data in forecast_day["hour"]:
-                        time_str = hour_data["time"]
-                        hour_dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-
-                        # 仅保留最近10小时数据
-                        if 0 <= (now - hour_dt).total_seconds() <= 3600 * 10:
-                            weather_data.append({
-                                "Temperature_C": hour_data["temp_c"],
-                                "Humidity_%": hour_data["humidity"],
-                                "Is_Snowing": 1 if "snow" in hour_data["condition"]["text"].lower() else 0,
-                                "Pressure_mb": hour_data["pressure_mb"],
-                                "Wind_Speed_kph": hour_data["wind_kph"],
-                                "Visibility_km": hour_data["vis_km"],
-                                "Wind_Bearing_deg": hour_data["wind_degree"]
-                            })
-                except KeyError as e:
-                    print(f"数据解析失败，缺失字段: {e}")
-                    continue
-
-        # 检查数据有效性
-        if not weather_data:
-            return jsonify({"error": "未获取到有效天气数据，请检查API密钥或城市名称"}), 400
-
-        # 转换为DataFrame并进行预测
-        df = pd.DataFrame(weather_data)
-        try:
-            predicted = predict_weather(df).flatten().tolist()
-        except Exception as e:
-            print(f"模型预测失败: {e}")
-            return jsonify({"error": "温度预测失败"}), 500
-
-        # 生成智能时间标签（处理跨天）
-        time_labels = []
-        for i in range(10):
-            start_time = now + timedelta(hours=i)
-            end_time = start_time + timedelta(hours=1)
-
-            # 处理跨天显示逻辑
-            day_suffix = "(次日)" if start_time.day != end_time.day else ""
-            label = f"{start_time.strftime('%H:%M')} → {end_time.strftime('%H:%M')} {day_suffix}".strip()
-            time_labels.append(label)
-
-        # 返回结构化数据
+        if not data or 'location' not in data:
+            return jsonify({"error": "缺少location参数"}), 400
+            
+        location = data['location'].strip()
+        if not location:
+            return jsonify({"error": "location不能为空"}), 400
+            
+        # 获取数据
+        fetcher = WeatherDataFetcher(API_KEY)
+        df = fetcher.fetch(location)
+        
+        # 执行预测
+        predictor = TemperaturePredictor(model, scaler)
+        temperatures = predictor.predict(df.tail(10))  # 使用最近10个点
+        
+        # 生成时间标签
+        now = datetime.utcnow()
+        time_labels = [
+            (now + timedelta(hours=i+1)).strftime("%H:%M UTC")
+            for i in range(len(temperatures))
+        ]
+        
         return jsonify({
-            "predicted_temperatures": [round(temp, 1) for temp in predicted],
-            "time_labels": time_labels
+            "location": location,
+            "predictions": [round(t, 1) for t in temperatures],
+            "timestamps": time_labels,
+            "model_info": {
+                "input_shape": model.input_shape,
+                "features": FEATURE_COLS
+            }
         })
-
-    except KeyError as e:
-        return jsonify({"error": f"请求参数错误: {str(e)}"}), 400
+        
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
-        print(f"服务器内部错误: {str(e)}")
-        return jsonify({"error": "服务器内部错误"}), 500
+        app.logger.error(f"预测失败: {str(e)}", exc_info=True)
+        return jsonify({"error": "内部服务器错误"}), 500
 
-
+# ============================== 启动应用 ==============================
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=os.environ.get('DEBUG', False))
