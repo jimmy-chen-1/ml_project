@@ -9,7 +9,7 @@ from flask import Flask, render_template, request, jsonify
 import json
 
 # 安全存储 API Key
-API_KEY = "a9e680c901b64650acd211526250304"
+API_KEY = os.environ.get("WEATHER_API_KEY")
 LOCATION = "Illinois"
 base_url = "http://api.weatherapi.com/v1/history.json"
 
