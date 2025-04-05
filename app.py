@@ -31,7 +31,7 @@ weather_data = []
 for date_str in dates_needed:
     url = f"{base_url}?key={API_KEY}&q={LOCATION}&dt={date_str}"
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=5)
         response.raise_for_status()
         data = response.json()
     except requests.RequestException as e:
