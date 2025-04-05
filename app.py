@@ -7,6 +7,8 @@ import numpy as np
 import os
 from flask import Flask, render_template, request, jsonify
 import json
+import tempfile
+import urllib.request
 
 # 安全存储 API Key
 API_KEY = os.environ.get("WEATHER_API_KEY")
@@ -71,11 +73,14 @@ df_scaled = scaler.fit_transform(df)
 # Reshape the data to match the LSTM model input shape
 df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))  # Shape (10, 1, 7)
 
-# 加载模型
+MODEL_URL = "https://drive.google.com/uc?export=download&id=1WqzNwQGkHnftaBUZRtP6ws0sQCl3hozd"
+
 try:
-    mc = joblib.load("weather_lstm.pkl")
-except FileNotFoundError:
-    print("模型文件未找到")
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        urllib.request.urlretrieve(MODEL_URL, tmp.name)
+        mc = joblib.load(tmp.name)
+except Exception as e:
+    print(f"模型下载或加载失败: {e}")
     exit()
 
 
