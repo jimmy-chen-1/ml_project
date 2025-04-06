@@ -7,27 +7,44 @@ import numpy as np
 import os
 from flask import Flask, render_template, request, jsonify
 import json
-import tempfile
-import urllib.request
+import torch
+import torch.nn as nn
 
-# 安全存储 API Key
+# ===============================
+# 定义 PyTorch 模型结构 LSTMModel
+# ===============================
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_size=50, num_layers=2, output_size=1):
+        super(LSTMModel, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc1 = nn.Linear(hidden_size, 25)
+        self.fc2 = nn.Linear(25, output_size)
+
+    def forward(self, x):
+        out, _ = self.lstm(x)
+        out = out[:, -1, :]
+        out = self.fc1(out)
+        out = self.fc2(out)
+        return out
+
+# ===============================
+# 初始化 Flask 应用
+# ===============================
+app = Flask(__name__)
 API_KEY = "a9e680c901b64650acd211526250304"
 LOCATION = "Illinois"
 base_url = "http://api.weatherapi.com/v1/history.json"
+weather_data = []
 
-# 创建 Flask 应用
-app = Flask(__name__)
-
-# 当前时间
+# ===============================
+# 获取最近10小时天气数据
+# ===============================
 now = datetime.now()
 dates_needed = list(set([
     now.strftime("%Y-%m-%d"),
     (now - timedelta(hours=10)).strftime("%Y-%m-%d")
 ]))
 
-weather_data = []
-
-# 获取天气数据
 for date_str in dates_needed:
     url = f"{base_url}?key={API_KEY}&q={LOCATION}&dt={date_str}"
     try:
@@ -44,7 +61,6 @@ for date_str in dates_needed:
             for hour_data in hour_data_list:
                 time_str = hour_data["time"]
                 hour_dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-
                 if 0 <= (now - hour_dt).total_seconds() <= 3600 * 10:
                     weather_data.append({
                         "Temperature_C": hour_data["temp_c"],
@@ -63,77 +79,71 @@ if not weather_data:
     print("未获取到天气数据")
     exit()
 
-# 转换为 Pandas DataFrame
 df = pd.DataFrame(weather_data)
-
-# 归一化
 scaler = MinMaxScaler()
 df_scaled = scaler.fit_transform(df)
+df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))  # (10, 1, 7)
 
-# Reshape the data to match the LSTM model input shape
-df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))  # Shape (10, 1, 7)
-
-MODEL_PATH = "weather_lstm_torch.pkl"
-
+# ===============================
+# 加载模型（本地 PyTorch pkl）
+# ===============================
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "weather_lstm_torch.pkl")
 try:
     mc = joblib.load(MODEL_PATH)
+    mc.eval()
     print("✅ 模型加载成功")
 except Exception as e:
     print(f"❌ 模型加载失败: {e}")
     exit()
 
-# 反归一化温度
+# ===============================
+# 反归一化函数
+# ===============================
 def inverse_scale_temp(scaled_temp, scaler, feature_index=0):
     dummy = np.zeros((scaled_temp.shape[0], df.shape[1]))
     dummy[:, feature_index] = scaled_temp.flatten()
     return scaler.inverse_transform(dummy)[:, feature_index].reshape(-1, 1)
 
-
-# 预测天气
+# ===============================
+# 天气预测函数
+# ===============================
 def predict_weather(df):
     if not isinstance(df, pd.DataFrame):
         raise ValueError("Input df must be a pandas DataFrame")
-
-    # 归一化数据
     df_scaled = scaler.fit_transform(df)
-
-    # Reshape data to match LSTM input
     df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))
-
-    # 使用 LSTM 模型进行预测
-    dapre = mc.predict(df_reshaped)
-
-    # 反归一化温度
+    input_tensor = torch.tensor(df_reshaped).float()
+    with torch.no_grad():
+        dapre = mc(input_tensor).numpy()
     result = inverse_scale_temp(dapre, scaler, feature_index=0)
     return result
 
-
-# 创建网页路由
+# ===============================
+# 路由：主页
+# ===============================
 @app.route('/')
 def home():
     return render_template('index.html')
 
-
+# ===============================
+# 路由：预测接口
+# ===============================
 @app.route('/weather', methods=['POST'])
 def weather():
     try:
-        # 解析前端发送的JSON数据
         data = request.get_json()
         location = data['location']
 
-        # 更新全局变量并清空旧数据
         global LOCATION, weather_data
         LOCATION = location
         weather_data.clear()
 
-        # 获取当前时间并计算所需日期
         now = datetime.now()
         dates_needed = list(set([
             now.strftime("%Y-%m-%d"),
             (now - timedelta(hours=10)).strftime("%Y-%m-%d")
         ]))
 
-        # 请求天气API数据
         for date_str in dates_needed:
             url = f"{base_url}?key={API_KEY}&q={LOCATION}&dt={date_str}"
             try:
@@ -144,15 +154,12 @@ def weather():
                 print(f"API请求失败: {e}")
                 continue
 
-            # 提取有效小时数据
             if "forecast" in api_data:
                 try:
                     forecast_day = api_data["forecast"]["forecastday"][0]
                     for hour_data in forecast_day["hour"]:
                         time_str = hour_data["time"]
                         hour_dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-
-                        # 仅保留最近10小时数据
                         if 0 <= (now - hour_dt).total_seconds() <= 3600 * 10:
                             weather_data.append({
                                 "Temperature_C": hour_data["temp_c"],
@@ -167,11 +174,9 @@ def weather():
                     print(f"数据解析失败，缺失字段: {e}")
                     continue
 
-        # 检查数据有效性
         if not weather_data:
             return jsonify({"error": "未获取到有效天气数据，请检查API密钥或城市名称"}), 400
 
-        # 转换为DataFrame并进行预测
         df = pd.DataFrame(weather_data)
         try:
             predicted = predict_weather(df).flatten().tolist()
@@ -179,18 +184,14 @@ def weather():
             print(f"模型预测失败: {e}")
             return jsonify({"error": "温度预测失败"}), 500
 
-        # 生成智能时间标签（处理跨天）
         time_labels = []
         for i in range(10):
             start_time = now + timedelta(hours=i)
             end_time = start_time + timedelta(hours=1)
-
-            # 处理跨天显示逻辑
             day_suffix = "(次日)" if start_time.day != end_time.day else ""
             label = f"{start_time.strftime('%H:%M')} → {end_time.strftime('%H:%M')} {day_suffix}".strip()
             time_labels.append(label)
 
-        # 返回结构化数据
         return jsonify({
             "predicted_temperatures": [round(temp, 1) for temp in predicted],
             "time_labels": time_labels
@@ -202,6 +203,8 @@ def weather():
         print(f"服务器内部错误: {str(e)}")
         return jsonify({"error": "服务器内部错误"}), 500
 
-
+# ===============================
+# 启动服务
+# ===============================
 if __name__ == '__main__':
     app.run(debug=True)
