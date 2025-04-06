@@ -11,7 +11,7 @@ import tempfile
 import urllib.request
 
 # 安全存储 API Key
-API_KEY = os.environ.get("WEATHER_API_KEY")
+API_KEY = "a9e680c901b64650acd211526250304"
 LOCATION = "Illinois"
 base_url = "http://api.weatherapi.com/v1/history.json"
 
