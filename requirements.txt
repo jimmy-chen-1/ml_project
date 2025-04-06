@@ -4,3 +4,6 @@ pandas
 scikit-learn
 numpy
 gunicorn
+scikit-learn
+torch
+matplotlib
