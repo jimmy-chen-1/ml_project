@@ -29,20 +29,6 @@ pipeline {
       }
     }
 
-    stage('检查模型文件是否存在') {
-      steps {
-        sh '''
-          echo "🔍 检查模型文件是否存在..."
-          if [ ! -f "models/weather_lstm_torch.pkl" ]; then
-            echo "❌ 模型文件不存在"
-            exit 1
-          else
-            echo "✅ 模型文件已找到"
-          fi
-        '''
-      }
-    }
-
     stage('启动 Flask 应用') {
       steps {
         sh '''
