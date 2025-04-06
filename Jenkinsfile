@@ -3,14 +3,14 @@ pipeline {
 
   environment {
     PYENV_ROOT = "${HOME}/.pyenv"
-    PATH = "${env.PYENV_ROOT}/bin:${env.PATH}"
+    PYTHON_VERSION = "3.10.13"
   }
 
   stages {
+
     stage('拉取代码') {
       steps {
-        git branch: 'main',
-            url: 'https://github.com/jimmy-chen-1/ml_project.git'
+        git 'https://github.com/jimmy-chen-1/ml_project.git'
       }
     }
 
@@ -18,15 +18,10 @@ pipeline {
       steps {
         sh '''
           echo "👉 初始化 pyenv..."
-          export PYENV_ROOT=$HOME/.pyenv
           export PATH="$PYENV_ROOT/bin:$PATH"
           eval "$(pyenv init --path)"
           eval "$(pyenv init -)"
-
-          echo "✅ 检查是否安装 Python 3.10.13..."
-          pyenv versions | grep 3.10.13 || pyenv install 3.10.13
-          pyenv global 3.10.13
-
+          pyenv global ${PYTHON_VERSION}
           echo "✅ 当前 Python 路径: $(which python3)"
           python3 --version
         '''
@@ -37,16 +32,16 @@ pipeline {
       steps {
         sh '''
           echo "🐍 创建虚拟环境..."
-          python3 -m venv venv
+          ${PYENV_ROOT}/versions/${PYTHON_VERSION}/bin/python -m venv venv
           source venv/bin/activate
 
           echo "⚙️ 升级 pip..."
           pip install --upgrade pip
 
           echo "📦 安装 tensorflow-macos（M 芯片专用）..."
-          pip install tensorflow-macos==2.12.0 --extra-index-url https://pypi.org/simple
+          pip install tensorflow-macos==2.12.0 --extra-index-url https://pypi.apple.com/simple
 
-          echo "📦 安装 requirements.txt 中的其他依赖..."
+          echo "📦 安装其他依赖..."
           pip install -r requirements.txt
         '''
       }
@@ -55,11 +50,12 @@ pipeline {
     stage('检查模型文件是否存在') {
       steps {
         sh '''
-          if [ ! -f model/weather_lstm_model.pkl ]; then
-            echo "❌ 模型文件不存在！"
+          echo "🔍 检查模型文件是否存在..."
+          if [ ! -f "models/lstm_model.pkl" ]; then
+            echo "❌ 模型文件不存在"
             exit 1
           else
-            echo "✅ 模型文件存在，继续执行..."
+            echo "✅ 模型文件已找到"
           fi
         '''
       }
@@ -78,7 +74,7 @@ pipeline {
 
   post {
     failure {
-      echo "❌ 构建失败，请查看控制台输出日志"
+      echo '❌ 构建失败，请查看控制台输出日志'
     }
   }
 }
