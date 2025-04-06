@@ -10,7 +10,7 @@ pipeline {
     stages {
         stage('拉取代码') {
             steps {
-                git 'https://github.com/你的用户名/你的仓库名.git'  // ⬅️ 请替换为你的 GitHub 地址
+                git 'https://github.com/jimmy-chen-1/ml_project.git'  // ⬅️ 请替换为你的 GitHub 地址
             }
         }
 
