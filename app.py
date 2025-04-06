@@ -76,13 +76,11 @@ df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))  # 
 MODEL_URL = "https://drive.google.com/uc?export=download&id=1RS2zBnexk3QBpbool8UJoI97lYfeaxQ3"
 
 try:
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        urllib.request.urlretrieve(MODEL_URL, tmp.name)
-        mc = joblib.load(tmp.name)
+    mc = joblib.load(MODEL_PATH)
+    print("✅ 模型加载成功")
 except Exception as e:
-    print(f"模型下载或加载失败: {e}")
+    print(f"❌ 模型加载失败: {e}")
     exit()
-
 
 # 反归一化温度
 def inverse_scale_temp(scaled_temp, scaler, feature_index=0):
