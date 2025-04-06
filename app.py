@@ -73,7 +73,7 @@ df_scaled = scaler.fit_transform(df)
 # Reshape the data to match the LSTM model input shape
 df_reshaped = df_scaled.reshape((df_scaled.shape[0], 1, df_scaled.shape[1]))  # Shape (10, 1, 7)
 
-MODEL_URL = "https://drive.google.com/uc?export=download&id=1RS2zBnexk3QBpbool8UJoI97lYfeaxQ3"
+MODEL_PATH = "weather_lstm_torch.pkl"
 
 try:
     mc = joblib.load(MODEL_PATH)
