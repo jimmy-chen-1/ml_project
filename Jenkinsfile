@@ -17,7 +17,7 @@ pipeline {
             }
         }
 
-        stage('初始化 pyenv 和 Python 环境') {
+        stage('初始化 pyenv 和 Python 3.10.13') {
             steps {
                 sh '''
                     export PYENV_ROOT="$PYENV_ROOT"
@@ -25,13 +25,12 @@ pipeline {
                     eval "$(pyenv init --path)"
                     eval "$(pyenv init -)"
 
-                    # 确保 Python 3.10.13 已安装
+                    echo "👉 检查是否安装 Python $PYTHON_VERSION..."
                     pyenv versions | grep $PYTHON_VERSION || pyenv install $PYTHON_VERSION
-
-                    # 切换 Python 版本
                     pyenv global $PYTHON_VERSION
 
-                    echo "✅ 当前 Python 版本："
+                    echo "✅ 当前 Python 路径:"
+                    which python3
                     python3 --version
                 '''
             }
@@ -46,7 +45,11 @@ pipeline {
                     eval "$(pyenv init -)"
                     pyenv global $PYTHON_VERSION
 
-                    python3 -m venv $VENV_DIR
+                    PY310_BIN="$PYENV_ROOT/versions/$PYTHON_VERSION/bin"
+
+                    echo "✅ 使用 Python 路径: $PY310_BIN/python"
+                    $PY310_BIN/python -m venv $VENV_DIR
+
                     source $VENV_DIR/bin/activate
                     pip install --upgrade pip
                     pip install -r requirements.txt
@@ -71,7 +74,7 @@ pipeline {
                     pkill -f $APP_FILE || true
                     nohup $VENV_DIR/bin/python $APP_FILE > flask.log 2>&1 &
                     sleep 3
-                    echo "✅ Flask 已启动，监听端口 $PORT"
+                    echo "✅ Flask 已启动，请访问： http://localhost:$PORT/"
                 '''
             }
         }
@@ -79,10 +82,12 @@ pipeline {
 
     post {
         success {
-            echo '✅ 构建完成，网站部署成功！'
+            echo '🎉 构建成功！你的网站已经部署完成啦~'
+            sh 'open http://localhost:5000 || true' // 可选：Mac 自动打开页面
         }
         failure {
-            echo '❌ 构建失败，请检查日志'
+            echo '❌ 构建失败，请查看控制台输出日志'
         }
     }
 }
+
