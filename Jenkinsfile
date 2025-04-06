@@ -10,7 +10,8 @@ pipeline {
     stages {
         stage('拉取代码') {
             steps {
-                git 'https://github.com/jimmy-chen-1/ml_project.git'
+                git branch: 'main',
+            url: 'https://github.com/jimmy-chen-1/ml_project.git'
             }
         }
 
