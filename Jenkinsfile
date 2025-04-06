@@ -2,8 +2,7 @@ pipeline {
   agent any
 
   environment {
-    PYENV_ROOT = "${HOME}/.pyenv"
-    PYTHON_VERSION = "3.10.13"
+    PYTHON_VERSION = "python3"
   }
 
   stages {
@@ -14,34 +13,17 @@ pipeline {
       }
     }
 
-    stage('初始化 pyenv 和 Python 3.10.13') {
-      steps {
-        sh '''
-          echo "👉 初始化 pyenv..."
-          export PATH="$PYENV_ROOT/bin:$PATH"
-          eval "$(pyenv init --path)"
-          eval "$(pyenv init -)"
-          pyenv global ${PYTHON_VERSION}
-          echo "✅ 当前 Python 路径: $(which python3)"
-          python3 --version
-        '''
-      }
-    }
-
     stage('创建虚拟环境 & 安装依赖') {
       steps {
         sh '''
-          echo "🐍 创建虚拟环境..."
-          ${PYENV_ROOT}/versions/${PYTHON_VERSION}/bin/python -m venv venv
+          echo "🐍 使用系统 Python 创建虚拟环境..."
+          ${PYTHON_VERSION} -m venv venv
           source venv/bin/activate
 
           echo "⚙️ 升级 pip..."
           pip install --upgrade pip
 
-          echo "📦 安装通用 TensorFlow..."
-          pip install tensorflow-macos==2.12.0
-
-          echo "📦 安装其他依赖..."
+          echo "📦 安装依赖（包含 PyTorch 和通用工具包）..."
           pip install -r requirements.txt
         '''
       }
