@@ -38,8 +38,9 @@ pipeline {
           echo "⚙️ 升级 pip..."
           pip install --upgrade pip
 
-          echo "📦 安装 tensorflow-macos（M 芯片专用）..."
-          pip install tensorflow-macos==2.12.0
+          echo "📦 安装通用 TensorFlow..."
+          pip install tensorflow==2.12.0
+
           echo "📦 安装其他依赖..."
           pip install -r requirements.txt
         '''
