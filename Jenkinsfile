@@ -33,7 +33,7 @@ pipeline {
       steps {
         sh '''
           echo "🔍 检查模型文件是否存在..."
-          if [ ! -f "models/lstm_model.pkl" ]; then
+          if [ ! -f "models/weather_lstm_torch.pkl" ]; then
             echo "❌ 模型文件不存在"
             exit 1
           else
