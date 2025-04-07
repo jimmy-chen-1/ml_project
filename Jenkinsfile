@@ -41,16 +41,17 @@ pipeline {
           echo "🧹 清理旧日志（如有）..."
           rm -f ${GUNICORN_LOG}
 
-          echo "🎯 后台运行 Gunicorn..."
+          echo "🎯 后台运行 Gunicorn（监听 ${APP_PORT}）..."
           nohup gunicorn -w 2 -b 0.0.0.0:${APP_PORT} app:app > ${GUNICORN_LOG} 2>&1 &
 
-          sleep 3
+          echo "⏳ 等待 Gunicorn 初始化..."
+          sleep 5
 
-          echo "🔍 检查 Gunicorn 是否监听 ${APP_PORT}..."
-          if lsof -i :${APP_PORT}; then
-            echo "✅ Gunicorn 正在监听端口 ${APP_PORT}"
+          echo "🌐 检查应用是否可访问..."
+          if curl -s http://127.0.0.1:${APP_PORT}/ > /dev/null; then
+            echo "✅ Gunicorn 应用已成功运行并监听端口 ${APP_PORT}"
           else
-            echo "❌ Gunicorn 未能监听端口 ${APP_PORT}，以下是日志内容："
+            echo "❌ Gunicorn 应用无法访问，打印日志内容："
             cat ${GUNICORN_LOG}
             exit 1
           fi
@@ -61,10 +62,10 @@ pipeline {
 
   post {
     failure {
-      echo '❌ 构建失败，请查看控制台输出日志和 gunicorn.log 错误信息'
+      echo '❌ 构建失败，请查看控制台日志及 gunicorn.log 内容'
     }
     success {
-      echo '✅ 构建成功！访问地址 → http://localhost:4090 或用 curl 测试 POST /weather'
+      echo "✅ 构建成功！你现在可以访问 → http://localhost:${APP_PORT} 或调用 /weather 接口"
     }
   }
 }
