@@ -36,8 +36,8 @@ pipeline {
           echo "🚀 使用 Gunicorn 启动 Flask 应用..."
           source ${VENV_DIR}/bin/activate
 
-          # 后台运行 Gunicorn，监听所有地址端口 5090
-          nohup gunicorn -w 2 -b 0.0.0.0:5090 app:app > gunicorn.log 2>&1 &
+          # 后台运行 Gunicorn，监听所有地址端口 5000
+          nohup gunicorn -w 2 -b 0.0.0.0:5000 app:app > gunicorn.log 2>&1 &
 
           echo "✅ Gunicorn 启动成功，Jenkins Pipeline 可继续完成"
         '''
