@@ -10,6 +10,7 @@ import json
 import torch
 import torch.nn as nn
 
+app = Flask(__name__)
 # ===============================
 # 定义 PyTorch 模型结构
 # ===============================
